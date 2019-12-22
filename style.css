@@ -1,0 +1,23 @@
+body {
+    background: #fff;
+}
+#visual {
+
+}
+#menu {
+    text-align: center;
+    margin: 20px auto;
+}
+#debug {
+    font-family: monospace;
+}
+#game {
+    margin-bottom: 50px;
+}
+canvas {
+    margin: 0 auto;
+}
+footer {
+    text-align: center;
+    font-size: 12px;
+}

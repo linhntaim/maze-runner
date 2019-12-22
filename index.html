@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>Maze Runner</title>
+    <link rel="icon" href="favicon_32.png" sizes="32x32" />
+    <link rel="apple-touch-icon-precomposed" href="favicon_128.png">
+    <meta name="msapplication-TileImage" content="favicon_128.png">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
+    <link rel="stylesheet" href="style.css">
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!--[if lt IE 9]-->
+    <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+    <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <!--[endif]-->
+</head>
+<body>
+<section id="visual">
+    <header id="menu" class="container">
+        <div class="row">
+            <div class="col-xs-12 col-sm-2 col-md-3 col-lg-4"></div>
+            <div class="col-xs-12 col-sm-8 col-md-6 col-lg-4">
+                <form>
+                    <div class="form-group">
+                        <label for="width">Width</label>
+                        <input id="width" class="form-control" type="range" min="20" max="60" step="2" value="30">
+                    </div>
+                    <div class="form-group">
+                        <label for="height">Height</label>
+                        <input id="height" class="form-control" type="range" min="20" max="60" step="2" value="30">
+                    </div>
+                    <div class="form-group">
+                        <label for="size">Size</label>
+                        <input id="size" class="form-control" type="range" min="6" max="20" step="2" value="10">
+                    </div>
+                    <div class="form-group">
+                        <button id="refresh" type="button" class="btn btn-success">New</button>
+                        <button id="reset" type="button" class="btn btn-warning">Reset</button>
+                        <button id="find" type="button" class="btn btn-danger">Result</button>
+                    </div>
+                    <div class="form-group">
+                        <textarea id="debug" class="form-control sr-only" rows="5" cols="10"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="col-xs-12 col-sm-2 col-md-3 col-lg-4"></div>
+        </div>
+    </header>
+    <main id="game" class="container">
+    	<div id="console" class="row">
+	</div>
+    </main>
+    <footer>
+	<p>Built with <a href="http://phaser.io/" rel="nofollow">Phaser</a>. Hosting provided by <a class="external text" href="http://vlexofree.com" rel="nofollow">VlexoFree Hosting</a>.</p>
+    </footer>
+</section>
+<script src="https://code.jquery.com/jquery-1.11.3.min.js"></script>
+<script src="https://code.jquery.com/jquery-migrate-1.2.1.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
+<script src="phaser.min.js"></script>
+<script src="easystar-0.2.0.min.js"></script>
+<script>
+    var MazeRunner_Game, MazeRunner_Properties,
+            MazeRunner_Constants = {
+                MOVE_NONE: 'n',
+                MOVE_LEFT: 'l',
+                MOVE_RIGHT: 'r',
+                MOVE_UP: 'u',
+                MOVE_DOWN: 'd',
+                LEFT_ARROW: 37,
+                RIGHT_ARROW: 39,
+                UP_ARROW: 38,
+                DOWN_ARROW: 40
+            };
+
+    function Game_Moves() {
+        return {
+            _stack: [],
+            Major: function () {
+                return this._stack.length > 0 ? this._stack[0] : false;
+            },
+            Minor: function () {
+                return this._stack.length > 1 ? this._stack[1] : false;
+            },
+            _isVertical: function (move) {
+                return move == MazeRunner_Constants.MOVE_UP || move == MazeRunner_Constants.MOVE_DOWN;
+            },
+            _isHorizontal: function (move) {
+                return move == MazeRunner_Constants.MOVE_LEFT || move == MazeRunner_Constants.MOVE_RIGHT;
+            },
+            _isSimilarMajor: function (move) {
+                return (this._isVertical(this.Major()) && this._isVertical(move)) ||
+                        (this._isHorizontal(this.Major()) && this._isHorizontal(move))
+            },
+            _isSimilarMinor: function (move) {
+                return (this._isVertical(this.Minor()) && this._isVertical(move)) ||
+                        (this._isHorizontal(this.Minor()) && this._isHorizontal(move))
+            },
+            Add: function (move) {
+                if (this._isSimilarMajor(move)) {
+                    this._stack = [];
+                }
+                else if (this._isSimilarMinor(move)) {
+                    this._stack.splice(1, this._stack.length - 1);
+                }
+                this._stack.push(move);
+            },
+            Stop: function () {
+                this._stack.shift();
+            }
+        };
+    }
+
+    function Game_Properties(width, height, tileSize, debug) {
+        if (width % 2 == 0) ++width;
+        if (height % 2 == 0) ++height;
+
+        if (debug) $('#debug').removeClass('sr-only');
+
+        return {
+            Debug: debug,
+            TileSize: tileSize,
+            Width: width,
+            Height: height,
+            Map: [],
+            Screen: null,
+            DefaultRunner: {
+                x: 1,
+                y: 1
+            },
+            Runner: {
+                x: 1,
+                y: 1
+            },
+            Mark: {
+                x: width - 2,
+                y: height - 2
+            },
+            StartPointer: {
+                x: 0,
+                y: 0
+            },
+            Lap: 0,
+            MoveStack: Game_Moves(),
+            IsEnded: false,
+            PointerWishUp: false,
+            IsResultShown: false,
+            ScreenWidth: function () {
+                return this.TileSize * this.Width;
+            },
+            ScreenHeight: function () {
+                return this.TileSize * this.Height;
+            },
+            PrepareEvents: function () {
+                var gInstance = Game_Instance();
+                gInstance.input.onDown.add(Game_Pointer_DownEvent);
+                gInstance.input.onUp.add(Game_Pointer_UpEvent);
+                gInstance.input.keyboard.onDownCallback = Game_Keyboard_DownEvent;
+            },
+            DrawBase: function () {
+                this.Screen = Game_Instance().add.graphics(0, 0);
+                this.DrawMap();
+                this.DrawRunner();
+                this.DrawMark();
+            },
+            DrawMap: function () {
+                this.Screen.beginFill(0xcccccc);
+                for (var i = 0; i < this.Width; i++) {
+                    for (var j = 0; j < this.Height; j++) {
+                        if (this.Map[i][j] == 0) {
+                            this.Screen.drawRect(i * this.TileSize, j * this.TileSize, this.TileSize, this.TileSize);
+                        }
+                    }
+                }
+                this.Screen.endFill();
+            },
+            DrawMark: function () {
+                this.Screen.beginFill(0xffff00);
+                this.Screen.drawRect(this.Mark.x * this.TileSize, this.Mark.y * this.TileSize, this.TileSize, this.TileSize);
+                this.Screen.endFill();
+            },
+            DrawResultNode: function (x, y) {
+                var halfTileSize = this.TileSize / 2;
+                this.Screen.beginFill(0xff0000);
+                this.Screen.drawRect(x * this.TileSize + halfTileSize / 2, y * this.TileSize + halfTileSize / 2, halfTileSize, halfTileSize);
+                this.Screen.endFill();
+            },
+            DrawNoResultNode: function (x, y) {
+                this.Screen.beginFill(0xcccccc);
+                this.Screen.drawRect(x * this.TileSize, y * this.TileSize, this.TileSize, this.TileSize);
+                this.Screen.endFill();
+            },
+            DrawRunner: function () {
+                this.Screen.beginFill(0xff0000);
+                this.Screen.drawRect(this.Runner.x * this.TileSize, this.Runner.y * this.TileSize, this.TileSize, this.TileSize);
+                this.Screen.endFill();
+            },
+            DrawNoRunner: function () {
+                this.Screen.beginFill(0xcccccc);
+                this.Screen.drawRect(this.Runner.x * this.TileSize, this.Runner.y * this.TileSize, this.TileSize, this.TileSize);
+                this.Screen.endFill();
+            },
+            SetRunner: function (x, y) {
+                this.DrawNoRunner();
+                this.Runner.x = x;
+                this.Runner.y = y;
+                this.DrawRunner();
+            },
+            IsWall: function (x, y) {
+                return this.Map[x][y] == 1;
+            },
+            IsPositionChange: function (x, y) {
+                return this.Runner.x != x || this.Runner.y != y;
+            },
+            IsMarked: function () {
+                return this.Runner.x == this.Mark.x && this.Runner.y == this.Mark.y;
+            }
+        }
+    }
+
+    function Game_Instance() {
+        return MazeRunner_Game;
+    }
+
+    function Game_Load() {
+
+    }
+
+    function Game_Init() {
+        for (var i = 0; i < MazeRunner_Properties.Width; i++) {
+            MazeRunner_Properties.Map[i] = [];
+            for (var j = 0; j < MazeRunner_Properties.Height; j++) {
+                MazeRunner_Properties.Map[i][j] = 1;
+            }
+        }
+
+        MazeRunner_Properties.Runner.x = MazeRunner_Properties.DefaultRunner.x;
+        MazeRunner_Properties.Runner.y = MazeRunner_Properties.DefaultRunner.y;
+
+        var posX = MazeRunner_Properties.Runner.x;
+        var posY = MazeRunner_Properties.Runner.y;
+
+        MazeRunner_Properties.Map[posX][posY] = 0;
+
+        var moves = [];
+        moves.push({
+            x: posX,
+            y: posX
+        });
+
+        while (moves.length) {
+            var possibleDirections = '';
+            if (posX - 2 > 0 && posX - 2 < MazeRunner_Properties.Width - 1 && MazeRunner_Properties.Map[posX - 2][posY] == 1) {
+                possibleDirections += MazeRunner_Constants.MOVE_LEFT;
+            }
+            if (posX + 2 > 0 && posX + 2 < MazeRunner_Properties.Width - 1 && MazeRunner_Properties.Map[posX + 2][posY] == 1) {
+                possibleDirections += MazeRunner_Constants.MOVE_RIGHT;
+            }
+            if (posY + 2 > 0 && posY + 2 < MazeRunner_Properties.Height - 1 && MazeRunner_Properties.Map[posX][posY + 2] == 1) {
+                possibleDirections += MazeRunner_Constants.MOVE_DOWN;
+            }
+            if (posY - 2 > 0 && posY - 2 < MazeRunner_Properties.Height - 1 && MazeRunner_Properties.Map[posX][posY - 2] == 1) {
+                possibleDirections += MazeRunner_Constants.MOVE_UP;
+            }
+            if (possibleDirections) {
+                var move = MazeRunner_Game.rnd.between(0, possibleDirections.length - 1);
+                switch (possibleDirections[move]) {
+                    case MazeRunner_Constants.MOVE_LEFT:
+                        MazeRunner_Properties.Map[posX - 1][posY] = 0;
+                        MazeRunner_Properties.Map[posX - 2][posY] = 0;
+                        posX -= 2;
+                        break;
+                    case MazeRunner_Constants.MOVE_RIGHT:
+                        MazeRunner_Properties.Map[posX + 1][posY] = 0;
+                        MazeRunner_Properties.Map[posX + 2][posY] = 0;
+                        posX += 2;
+                        break;
+                    case MazeRunner_Constants.MOVE_DOWN:
+                        MazeRunner_Properties.Map[posX][posY + 1] = 0;
+                        MazeRunner_Properties.Map[posX][posY + 2] = 0;
+                        posY += 2;
+                        break;
+                    case MazeRunner_Constants.MOVE_UP:
+                        MazeRunner_Properties.Map[posX][posY - 1] = 0;
+                        MazeRunner_Properties.Map[posX][posY - 2] = 0;
+                        posY -= 2;
+                        break;
+                }
+
+                moves.push({
+                    x: posX,
+                    y: posY
+                });
+            }
+            else {
+                var back = moves.pop();
+                posX = back.x;
+                posY = back.y;
+            }
+        }
+
+        MazeRunner_Properties.DrawBase();
+        MazeRunner_Properties.PrepareEvents();
+    }
+
+    function Game_Loop() {
+        if (MazeRunner_Properties.Lap == 0) {
+            if (MazeRunner_Properties.IsMarked()) {
+                Game_End();
+                return;
+            }
+
+            var majorMove = MazeRunner_Properties.MoveStack.Major();
+            if (majorMove !== false) {
+                var tmpX = MazeRunner_Properties.Runner.x, tmpY = MazeRunner_Properties.Runner.y;
+                switch (majorMove) {
+                    case MazeRunner_Constants.MOVE_LEFT:
+                        tmpX -= 1;
+                        break;
+                    case MazeRunner_Constants.MOVE_RIGHT:
+                        tmpX += 1;
+                        break;
+                    case MazeRunner_Constants.MOVE_UP:
+                        tmpY -= 1;
+                        break;
+                    case MazeRunner_Constants.MOVE_DOWN:
+                        tmpY += 1;
+                        break;
+                    default:
+                        break;
+                }
+
+                if (MazeRunner_Properties.IsPositionChange(tmpX, tmpY)) {
+                    if (!MazeRunner_Properties.IsWall(tmpX, tmpY)) {
+                        MazeRunner_Properties.SetRunner(tmpX, tmpY);
+
+                        var minorMove = MazeRunner_Properties.MoveStack.Minor();
+                        if (minorMove !== false) {
+                            switch (minorMove) {
+                                case MazeRunner_Constants.MOVE_LEFT:
+                                    tmpX -= 1;
+                                    break;
+                                case MazeRunner_Constants.MOVE_RIGHT:
+                                    tmpX += 1;
+                                    break;
+                                case MazeRunner_Constants.MOVE_UP:
+                                    tmpY -= 1;
+                                    break;
+                                case MazeRunner_Constants.MOVE_DOWN:
+                                    tmpY += 1;
+                                    break;
+                                default:
+                                    break;
+                            }
+
+                            if (MazeRunner_Properties.IsPositionChange(tmpX, tmpY)) {
+                                if (!MazeRunner_Properties.IsWall(tmpX, tmpY)) {
+                                    MazeRunner_Properties.MoveStack.Stop(); // stop major move
+                                } // can move
+                            } // pos change
+                        } // has minor move
+                    } // can move
+                    else {
+                        MazeRunner_Properties.MoveStack.Stop();
+                    } // meet wall
+                } // pos change
+            } // has major move
+        } // lap event
+
+        ++MazeRunner_Properties.Lap;
+        if (MazeRunner_Properties.Lap == 8) {
+            MazeRunner_Properties.Lap = 0;
+        }
+    }
+
+    function Game_Keyboard_DownEvent(e) {
+        switch (e.keyCode) {
+            case MazeRunner_Constants.LEFT_ARROW:
+                MazeRunner_Properties.MoveStack.Add(MazeRunner_Constants.MOVE_LEFT);
+                break;
+            case MazeRunner_Constants.RIGHT_ARROW:
+                MazeRunner_Properties.MoveStack.Add(MazeRunner_Constants.MOVE_RIGHT);
+                break;
+            case MazeRunner_Constants.UP_ARROW:
+                MazeRunner_Properties.MoveStack.Add(MazeRunner_Constants.MOVE_UP);
+                break;
+            case MazeRunner_Constants.DOWN_ARROW:
+                MazeRunner_Properties.MoveStack.Add(MazeRunner_Constants.MOVE_DOWN);
+                break;
+            default :
+                return;
+        }
+    }
+
+    function Game_Pointer_DownEvent(e) {
+        e.game.input.onDown.halt();
+        MazeRunner_Properties.PointerWishUp = true;
+        MazeRunner_Properties.StartPointer.x = Math.round(e.clientX);
+        MazeRunner_Properties.StartPointer.y = Math.round(e.clientY);
+
+        Game_Debug('Down: ' + e.clientX + ', ' + e.clientY);
+    }
+
+    function Game_Pointer_UpEvent(e) {
+        if (!MazeRunner_Properties.PointerWishUp) return;
+        MazeRunner_Properties.PointerWishUp = false;
+        
+        var dx = Math.round(e.clientX) - MazeRunner_Properties.StartPointer.x;
+        var dy = Math.round(e.clientY) - MazeRunner_Properties.StartPointer.y;
+        var d = MazeRunner_Constants.MOVE_NONE;
+        if (Math.abs(dx) > MazeRunner_Properties.TileSize || Math.abs(dy) > MazeRunner_Properties.TileSize) {
+            if (Math.abs(dx) > Math.abs(dy)) {
+                if (dx > 0) { // swipe right
+                    d = MazeRunner_Constants.MOVE_RIGHT;
+                    MazeRunner_Properties.MoveStack.Add(MazeRunner_Constants.MOVE_RIGHT);
+                }
+                else { // left
+                    d = MazeRunner_Constants.MOVE_LEFT;
+                    MazeRunner_Properties.MoveStack.Add(MazeRunner_Constants.MOVE_LEFT);
+                }
+            }
+            else {
+                if (dy > 0) { // down
+                    d = MazeRunner_Constants.MOVE_DOWN;
+                    MazeRunner_Properties.MoveStack.Add(MazeRunner_Constants.MOVE_DOWN);
+                }
+                else { // up
+                    d = MazeRunner_Constants.MOVE_UP;
+                    MazeRunner_Properties.MoveStack.Add(MazeRunner_Constants.MOVE_UP);
+                }
+            }
+        }
+
+        Game_Debug('Up: ' + d + ' ' + e.clientX + ', ' + e.clientY + ', ' + dx + ',' + dy);
+    }
+
+    function Game_End() {
+        if (MazeRunner_Properties.IsEnded) return;
+        MazeRunner_Properties.IsEnded = true;
+        setTimeout(function () {
+            alert('Finish.');
+
+            Game_New();
+        }, 400);
+    }
+
+    function Game_Reset() {
+        MazeRunner_Properties.SetRunner(MazeRunner_Properties.DefaultRunner.x, MazeRunner_Properties.DefaultRunner.y);
+        MazeRunner_Properties.IsResultShown = !MazeRunner_Properties.IsResultShown;
+        Game_Result();
+    }
+
+    function Game_Result() {
+        var easyStar = new EasyStar.js();
+        easyStar.setGrid(MazeRunner_Properties.Map);
+        easyStar.setAcceptableTiles([0]);
+        easyStar.findPath(
+                MazeRunner_Properties.Runner.y,
+                MazeRunner_Properties.Runner.x,
+                MazeRunner_Properties.Mark.y,
+                MazeRunner_Properties.Mark.x,
+                function (foundPath) {
+                    if (!MazeRunner_Properties.IsResultShown) {
+                        for (var i = 1; i < foundPath.length - 1; ++i) {
+                            MazeRunner_Properties.DrawResultNode(foundPath[i].y, foundPath[i].x);
+                        }
+                    }
+                    else {
+                        for (var i = 1; i < foundPath.length - 1; ++i) {
+                            MazeRunner_Properties.DrawNoResultNode(foundPath[i].y, foundPath[i].x);
+                        }
+                    }
+                    MazeRunner_Properties.IsResultShown = !MazeRunner_Properties.IsResultShown;
+                }
+        );
+        easyStar.calculate();
+    }
+
+    function Game_Debug(o) {
+        if (MazeRunner_Properties.Debug) {
+            $('#debug').val(o.toString() + "\n" + $('#debug').val());
+        }
+    }
+
+    function Game_New() {
+        if (MazeRunner_Game) {
+            MazeRunner_Game.destroy();
+        }
+
+        MazeRunner_Properties = Game_Properties(parseInt($('#width').val()), parseInt($('#height').val()), parseInt($('#size').val()), false);
+        MazeRunner_Game = new Phaser.Game(MazeRunner_Properties.ScreenWidth(), MazeRunner_Properties.ScreenHeight(), Phaser.AUTO, 'console', {
+            preload: Game_Load,
+            create: Game_Init,
+            update: Game_Loop
+        });
+    }
+
+    $(document).ready(function () {
+        Game_New();
+
+        $('#refresh').on('click', function () {
+            Game_New();
+        });
+
+        $('#reset').on('click', function () {
+            Game_Reset();
+        });
+
+        $('#find').on('click', function () {
+            Game_Result();
+        });
+
+        $(document).on('mousedown', function (e) {
+            if(e.target.tagName!='CANVAS') {
+                MazeRunner_Properties.PointerWishUp = false;
+            }
+        });
+    });
+</script>
+</body>
+</html>
